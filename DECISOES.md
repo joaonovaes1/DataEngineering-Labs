@@ -13,100 +13,152 @@ arquivo em que ela acontece. A numeracao segue a do esqueleto.
 
 ## DECISAO 04: quantas particoes declarar, e quais
 
-**O que escolhi:** declarar tres particoes, sendo a terceira a de hoje. As
+**O que escolhi:** declarar tres particoes, as dos ultimos tres dias (anteontem,
+ontem e hoje), que sao as que o `deploy.sh` calcula no momento do deploy. As
 outras vinte e sete continuam no S3, pagas e invisiveis para quem consulta.
 
-### Por que a quantidade nao e um detalhe
+### Existem duas perguntas aqui dentro, e elas nao sao a mesma
+
+A primeira e de que tamanho e cada fatia do dado. A segunda e quantas fatias eu
+registro no catalogo. As duas mexem no custo da consulta, mas em direcoes
+diferentes, e trocar uma pela outra leva direto a conclusao errada.
+
+### Pergunta 1: o tamanho da fatia
+
+Particionar existe para que uma consulta leia menos do que o total. O ganho vem
+de quao fino o dado esta fatiado, porque o Athena abre a fatia inteira em que o
+filtro cai, e nao um pedaco dela.
+
+Com os mesmos 117.655.606 bytes de corridas, o efeito da granularidade sobre uma
+pergunta que quer um unico dia:
+
+| Fatiamento | Particoes | Uma consulta de um dia le |
+| --- | --- | --- |
+| nenhum | 0 | 117.655.606 bytes |
+| por mes | 1 | 117.655.606 bytes |
+| por dia | 30 | 3.921.495 bytes |
+| por hora | 720 | cerca de 163.000 bytes |
+
+Fatiar mais fino barateia a consulta filtrada, e barateia muito: trocar mes por
+dia derruba a leitura em trinta vezes, sem mudar uma linha da pergunta.
+
+Essa parte, porem, nao e uma decisao que este template toma. O layout chega
+pronto do gerador, que grava uma pasta por dia em `raw/corridas/dt=AAAA-MM-DD/`.
+A granularidade de um dia ja esta dada, e eu a herdo.
+
+### Pergunta 2: quantas fatias registrar
+
+Essa sim e minha, e e o que a DECISAO 04 decide de fato.
 
 Sem Crawler, particao no S3 e particao no catalogo sao duas coisas separadas. O
-gerador produz trinta objetos, um por dia, em `raw/corridas/dt=AAAA-MM-DD/`. O
-S3 guarda os trinta. O Athena so enxerga os que estao registrados no Glue Data
-Catalog, e com a tabela declarada a mao (`projection.enabled: false`) o registro
-so acontece se eu escrever o recurso `AWS::Glue::Partition` correspondente.
+objeto existe no armazenamento, mas o Athena so o enxerga se houver um recurso
+`AWS::Glue::Partition` declarado apontando para ele. Nao ha processo nenhum
+neste template que faca esse registro sozinho.
 
-O efeito pratico: as vinte e sete particoes que eu nao declarei existem, ocupam
-espaco, aparecem na fatura do S3, e para quem faz a pergunta elas simplesmente
-nao existem. Nao ha erro, nao ha aviso, nao ha linha de log. A consulta responde
-normalmente, so que sobre um pedaco do dado.
+O efeito de registrar mais ou menos:
+
+| Particoes registradas | `WHERE dt = 'hoje'` le | `SELECT count(*)` sem filtro le |
+| --- | --- | --- |
+| 3 | 3.921.495 bytes | 11.765.561 bytes |
+| 10 | 3.921.495 bytes | 39.218.535 bytes |
+| 30 | 3.921.495 bytes | 117.655.606 bytes |
+
+A coluna do meio nao se move. Declarar a particao de doze de julho nao deixa a
+consulta de hoje mais barata, porque ela continua abrindo um arquivo so. O que
+cresce e a coluna da direita, a consulta sem filtro, que varre tudo o que
+estiver registrado.
+
+O resumo das duas perguntas: quem barateia a consulta e o filtro `WHERE dt =`
+somado a granularidade da fatia. A quantidade de particoes no catalogo nao
+barateia consulta nenhuma.
+
+### Registrar poucas particoes nao e economia
+
+Essa e a parte que quero deixar escrita porque parece o contrario do que e.
+
+Uma pergunta por um dia que eu nao declarei, digamos `WHERE dt = '2026-07-15'`,
+devolve zero linhas e cobra quase nada, porque leu quase nada. Isso se parece com
+economia. Nao e. Quem perguntou recebeu uma resposta vazia sem nenhum sinal de
+que aquele dia existe no S3 e apenas nao esta catalogado. Nao ha erro, nao ha
+aviso, nao ha entrada de log.
+
+O barato, neste caso, nao veio de ler menos para chegar na mesma resposta. Veio
+de nao responder. Sao vinte e sete dias de corrida que estao no armazenamento,
+aparecem na fatura do S3, e para qualquer pergunta feita a essa tabela nao
+existem.
 
 ### O que a pergunta de negocio exige
 
 A pergunta que motivou o lake e "quais bairros do Recife concentram corridas na
-madrugada, e desde quando". A segunda metade dela, o "desde quando", e uma
-pergunta sobre historico: ela quer saber a partir de que momento o padrao
-aparece.
+madrugada, e desde quando". A segunda metade dela, o "desde quando", quer saber
+a partir de que momento o padrao aparece.
 
-Com tres particoes eu tenho tres dias de janela. Tres dias nao respondem "desde
-quando", respondem "anteontem, ontem e hoje". Quem consultar essa tabela vai
-receber um resultado tecnicamente correto para uma pergunta que nao e a que
-foi feita.
+Tres particoes dao tres dias de janela. Tres dias nao respondem "desde quando",
+respondem "anteontem, ontem e hoje". Quem consultar essa tabela vai receber um
+resultado correto sobre um recorte que nao e o da pergunta, e nao tem como notar
+isso pela resposta.
 
-Isso e uma limitacao real da minha entrega, e prefiro registra-la aqui a fingir
+Essa e uma limitacao real da minha entrega, e prefiro registra-la aqui a fingir
 que tres particoes atendem o caso de uso.
 
-### O que a quantidade faz com o custo, e o que ela nao faz
+### Por que fiquei em tres mesmo assim
 
-Aqui e importante separar duas coisas que costumam ser confundidas.
+O `deploy.sh` calcula exatamente tres datas, `hoje-2`, `hoje-1` e `hoje`, e passa
+tres overrides fixos para o template. Declarar uma quarta particao exigiria
+mudar o `deploy.sh` alem do `template.yaml`, e o `deploy.sh` nao faz parte do que
+eu entrego. Quem lesse a minha entrega nao conseguiria reproduzir a stack, porque
+faltaria a peca que passa as datas extras.
 
-O que derruba o custo de uma consulta e o filtro de particao, nao a quantidade
-de particoes declaradas. Uma consulta com `WHERE dt = '2026-08-22'` le um unico
-objeto, cerca de 3.921.495 bytes, e isso vale igual se eu tiver declarado tres
-particoes ou trinta. O tamanho da particao nao muda porque outras foram
-registradas.
+Entao a escolha aqui nao foi entre tres e trinta. Foi entre tres particoes e um
+ferramental coerente, ou mais particoes e uma entrega que nao se reproduz. Fiquei
+com tres, e registro o que isso custa nas duas secoes acima.
 
-O que a quantidade muda e o tamanho da consulta sem filtro, e e por ai que ela
-toca a DECISAO 05. Com tres particoes declaradas, um `SELECT count(*) FROM
-corridas` sem `WHERE` varre aproximadamente 11.765.561 bytes (as tres somadas).
-Com trinta, varreria os 117.655.606 bytes do lake inteiro.
+### O efeito colateral sobre o teto
 
-Isso importa porque o teto de bytes precisa caber entre a consulta estreita e a
-consulta larga, e a AWS impoe um piso de 10.485.760 bytes para
-`BytesScannedCutoffPerQuery`. Com tres particoes, a janela util do teto vai de
-10.485.760 a 11.765.560 bytes, cerca de 1,28 MB de folga, aproximadamente 11%.
-E uma margem estreita: basta uma particao sair menor que a media para a consulta
-larga passar por baixo do teto, e nesse caso o freio deixa de tocar exatamente
-na consulta que ele existe para barrar.
+Com tres particoes registradas, a consulta sem filtro varre cerca de 11.765.561
+bytes, e a consulta filtrada varre 3.921.495. O teto da DECISAO 05 precisa cair
+entre esses dois numeros, e a AWS impoe um piso de 10.485.760 bytes para
+`BytesScannedCutoffPerQuery`.
 
-Declarar mais particoes alargaria essa janela. Com cinco, a consulta larga
-varreria cerca de 19.609.268 bytes e o teto teria quase 9 MB de folga. A
-decisao de ficar em tres, portanto, e a decisao de trabalhar com a margem mais
-apertada que o exercicio permite.
+A janela util fica entre 10.485.760 e 11.765.560 bytes, cerca de 1,28 MB, algo
+como 11% de folga. E uma margem estreita: se uma das tres particoes sair menor
+que a media, a consulta sem filtro passa por baixo do teto e o freio deixa de
+tocar exatamente na consulta que ele existe para barrar. Por isso o numero
+da DECISAO 05 sai de medicao, e nao da media que eu estimei aqui.
 
-### O custo que cresce com a quantidade
+Se eu pudesse declarar cinco particoes, a consulta sem filtro subiria para cerca
+de 19.609.268 bytes e a folga passaria de 1,28 MB para quase 9 MB. A restricao do
+`deploy.sh` custa essa margem.
 
-O que aumenta com cada particao declarada e trabalho manual. Cada uma e um
-recurso `AWS::Glue::Partition` escrito a mao no template, com o `Location`
-apontando para a chave exata do objeto no S3. Se o `Location` nao bater com a
-chave, o Athena devolve zero linha e nenhum erro: a resposta parece certa e nao
-e, e nada no caminho sinaliza a diferenca.
+### O custo que cresce a cada particao declarada
+
+Cada particao e um recurso escrito a mao, com o `Location` apontando para a chave
+exata do objeto no S3. Se o `Location` nao bater com a chave, o Athena devolve
+zero linha e nenhum erro: a resposta parece certa e nao e, e nada no caminho
+sinaliza a diferenca.
 
 E ha um problema que nao se resolve escrevendo mais recursos. Amanha o gerador
 produz um dia novo. Esse dia chega ao S3 pelo `aws s3 sync` e nao chega ao
-catalogo, porque neste template nao existe nenhum processo que registre
-particao: o registro so acontece quando alguem edita o arquivo e roda o deploy
-outra vez. No dia seguinte, a particao que hoje e a mais recente passa a ser a
-de ontem, e o catalogo para de refletir o que esta no armazenamento ate que
-esse deploy aconteca.
+catalogo, porque neste template nao existe nenhum processo que registre particao:
+o registro so acontece quando alguem edita o arquivo e roda o deploy outra vez.
+No dia seguinte, a particao que hoje e a mais recente passa a ser a de ontem, e o
+catalogo para de refletir o armazenamento ate que esse deploy aconteca.
 
 Declarar particao a mao, portanto, nao e um trabalho que se faz uma vez. E um
-trabalho que se repete a cada dia novo, indefinidamente, ou a tabela envelhece
-em silencio. Subir de tres para trinta particoes nao resolve isso: apenas adia
-o mesmo problema em vinte e sete dias.
+trabalho que se repete a cada dia novo, indefinidamente, ou a tabela envelhece em
+silencio. Subir de tres para trinta nao resolve isso, apenas adia o mesmo
+problema em vinte e sete dias.
 
-### O resumo do trade-off
+### Resumo
 
-| Eixo | Poucas particoes (3) | Muitas particoes (30) |
-| --- | --- | --- |
-| Pergunta "desde quando" | nao responde | responde |
-| Custo da consulta filtrada | ~3,92 MB | ~3,92 MB (igual) |
-| Consulta sem filtro | ~11,77 MB | ~117,66 MB |
-| Folga do teto de bytes | ~1,28 MB (11%) | ~107 MB |
-| Linhas de template a manter | 3 blocos | 30 blocos |
-| Particao de amanha | ninguem registra | ninguem registra (igual) |
-
-A ultima linha e a que importa mais: o problema de manutencao nao melhora com
-mais particoes declaradas, so fica maior. Ele e estrutural, e vem de ter tirado
-o processo que fazia o registro.
+| Eixo | Efeito |
+| --- | --- |
+| Granularidade da fatia (um dia) | barateia a consulta filtrada, e nao e decisao minha |
+| Filtro `WHERE dt =` na consulta | e o que de fato derruba o custo, de 11,77 MB para 3,92 MB |
+| Numero de particoes registradas | nao muda a consulta filtrada, so a sem filtro |
+| Registrar poucas | nao economiza, esconde dado e devolve resposta vazia sem aviso |
+| Registrar muitas | alarga a folga do teto e multiplica o trabalho manual |
+| Particao do dia seguinte | ninguem registra, com tres ou com trinta |
 
 ---
 

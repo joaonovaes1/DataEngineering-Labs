@@ -152,7 +152,7 @@ Resources:
               # true: linha quebrada vira null e a consulta responde.
               # false: uma linha ruim derruba a consulta inteira com HIVE_BAD_DATA.
               # Justifique em DECISOES.md quem paga o que voce escolheu.
-              "ignore.malformed.json": "SEU_VALOR_AQUI"   # <- completar
+              "ignore.malformed.json": "true"
           Columns:
             - Name: corrida_id
               Type: string
@@ -168,9 +168,9 @@ Resources:
             # Justifique em DECISOES.md o que o SELECT devolveu - nao o que
             # voce supos.
             - Name: data_corrida
-              Type: SEU_TIPO_AQUI   # <- completar
+              Type: timestamp
             - Name: fim
-              Type: SEU_TIPO_AQUI   # <- completar
+              Type: timestamp
             - Name: distancia_km
               Type: double
             - Name: duracao_min
@@ -180,7 +180,7 @@ Resources:
             # manda "17,82", com virgula decimal.
             # Justifique em DECISOES.md o que voce aceita perder.
             - Name: valor
-              Type: SEU_TIPO_AQUI   # <- completar
+              Type: string
 
   # 4 - As particoes. Tres das trinta, e a ausencia das outras 27 e conteudo:
   # dado nao catalogado e dado que nao existe para quem pergunta.
@@ -205,15 +205,47 @@ Resources:
             Parameters:
               "ignore.malformed.json": "true"
 
-  # DECISAO 04 - quantas das 30 particoes voce declara.
-  # O criterio 3 exige no minimo 3, e uma delas precisa ser a de hoje.
-  # O bloco acima e o modelo: copie-o, troque o nome do recurso e a data.
-  # Justifique em DECISOES.md o que acontece com as que voce nao declarou -
-  # e o que acontece no dia 31.
-  #
-  # Particao2:
-  #   Type: AWS::Glue::Partition
-  #   ...
+  # DECISAO 04 - declarei tres das trinta particoes. As outras vinte e sete
+  # continuam no S3 e nao existem para quem consulta: uma pergunta por um dia
+  # nao declarado devolve zero linha, sem erro e sem aviso.
+  # A justificativa completa esta em DECISOES.md.
+  Particao2:
+    Type: AWS::Glue::Partition
+    DependsOn: CorridasTable
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref RawDatabase
+      TableName: corridas
+      PartitionInput:
+        Values:
+          - !Ref DataParticao2
+        StorageDescriptor:
+          Location: !Sub "s3://${LakeBucket}/raw/corridas/dt=${DataParticao2}/"
+          InputFormat: org.apache.hadoop.mapred.TextInputFormat
+          OutputFormat: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+          SerdeInfo:
+            SerializationLibrary: org.openx.data.jsonserde.JsonSerDe
+            Parameters:
+              "ignore.malformed.json": "true"
+
+  Particao3:
+    Type: AWS::Glue::Partition
+    DependsOn: CorridasTable
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref RawDatabase
+      TableName: corridas
+      PartitionInput:
+        Values:
+          - !Ref DataParticao3
+        StorageDescriptor:
+          Location: !Sub "s3://${LakeBucket}/raw/corridas/dt=${DataParticao3}/"
+          InputFormat: org.apache.hadoop.mapred.TextInputFormat
+          OutputFormat: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+          SerdeInfo:
+            SerializationLibrary: org.openx.data.jsonserde.JsonSerDe
+            Parameters:
+              "ignore.malformed.json": "true"
 
   # 5 - O workgroup. No Lab 01 o teto vinha pronto e nunca tocou; aqui ele sai
   # de uma medicao e precisa matar a consulta larga.

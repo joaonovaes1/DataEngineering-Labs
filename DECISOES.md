@@ -1,196 +1,461 @@
-# Decisoes do Exercicio 01
+# Decisões do Exercício 01
 
-Engenharia de Dados, Aula 04. Lake minimo com o schema declarado, sem Crawler.
+Lake mínimo com o schema declarado, sem Crawler.
 
-Autor: Joao Marcelo (jmnfa@cesar.school)
-Login/sufixo dos recursos: `eda-grupo01`
-Conta: 325583868777, regiao us-east-1
+| | |
+| --- | --- |
+| Autor | João Marcelo (jmnfa@cesar.school) |
+| Login e sufixo dos recursos | `eda-grupo01` |
+| Conta | 325583868777, região us-east-1 |
 
-Cada decisao abaixo esta marcada no `infra/template.yaml` no ponto exato do
-arquivo em que ela acontece. A numeracao segue a do esqueleto.
+Cada decisão abaixo está marcada no `infra/template.yaml`, no ponto do arquivo em
+que ela acontece. Todas as medições citadas foram feitas sobre os 518.400 eventos
+gerados e sobre a stack em execução, antes do destroy.
 
 ---
 
-## DECISAO 04: quantas particoes declarar, e quais
+## DECISÃO 01: o tipo da coluna `valor`
 
-**O que escolhi:** declarar tres particoes, as dos ultimos tres dias (anteontem,
-ontem e hoje), que sao as que o `deploy.sh` calcula no momento do deploy. As
-outras vinte e sete continuam no S3, pagas e invisiveis para quem consulta.
+**Escolhi `string`.**
 
-### Existem duas perguntas aqui dentro, e elas nao sao a mesma
+### O que medi
 
-A primeira e de que tamanho e cada fatia do dado. A segunda e quantas fatias eu
-registro no catalogo. As duas mexem no custo da consulta, mas em direcoes
-diferentes, e trocar uma pela outra leva direto a conclusao errada.
+Abri os 518.400 eventos e classifiquei o campo `valor` por tipo JSON:
 
-### Pergunta 1: o tamanho da fatia
+| Formato emitido pelo produtor | Eventos | Fatia |
+| --- | --- | --- |
+| número, por exemplo `9.8` | 510.712 | 98,52% |
+| texto com vírgula, por exemplo `"9,49"` | 7.688 | 1,48% |
 
-Particionar existe para que uma consulta leia menos do que o total. O ganho vem
-de quao fino o dado esta fatiado, porque o Athena abre a fatia inteira em que o
-filtro cai, e nao um pedaco dela.
+O que interessa não é o percentual de linhas, e sim a receita que elas carregam:
 
-Com os mesmos 117.655.606 bytes de corridas, o efeito da granularidade sobre uma
-pergunta que quer um unico dia:
+```
+faturamento nos eventos numéricos:  R$ 8.923.930,64
+faturamento nos eventos em texto:   R$   134.749,67
+total:                              R$ 9.058.680,31
+```
 
-| Fatiamento | Particoes | Uma consulta de um dia le |
+Os 1,48% de linhas correspondem a 1,49% da receita, R$ 134.749,67.
+
+### Por que descartei `double` e `decimal(10,2)`
+
+Com `double`, o texto `"9,49"` não converte e o campo recebe `NULL`. A linha
+continua existindo e o `count(*)` continua correto, mas o valor desaparece. Um
+`SELECT sum(valor)` devolveria R$ 8.923.930,64 sem qualquer sinal de que faltam
+R$ 134.749,67. A resposta tem a forma de uma resposta correta.
+
+Com `decimal(10,2)` acontece o mesmo. Registro isso porque a intuição sugere o
+contrário: um tipo mais estrito deveria recusar o dado ruim de forma ruidosa.
+Com o JSON SerDe isso não ocorre, e `"9,49"` vira `NULL` exatamente como viraria
+contra `double`. Paga-se a rigidez do tipo decimal sem receber o alarme em troca.
+
+### Por que escolhi `string`
+
+Porque é a única das três opções em que o dado sobrevive até a consulta.
+
+Declarar um tipo forte transforma a leitura em uma conversão obrigatória e
+silenciosa: o que não couber é descartado antes que alguém veja. Com `string`, a
+conversão deixa de ser automática e passa a ser escrita:
+
+```sql
+SELECT sum(CAST(replace(valor, ',', '.') AS double))
+FROM corridas WHERE dt = '2026-08-22';
+```
+
+O `replace` está ali porque medi a vírgula e sei que ela existe. Quem lê a
+consulta enxerga o tratamento e pode discordar dele.
+
+E o problema passa a ser contável. Confirmei isso na stack em execução:
+
+```sql
+SELECT count(*) FROM corridas
+WHERE dt = '2026-08-22' AND regexp_like(valor, ',');
+```
+
+A consulta devolveu 245 registros naquele dia. Com `double` essa pergunta seria
+impossível, porque os registros já teriam perdido a característica que os
+identifica. Restaria `WHERE valor IS NULL`, que conta os afetados mas não separa
+"o produtor não enviou valor" de "o produtor enviou um valor que não soube ler",
+e não permite recuperar nenhum deles.
+
+### O que essa escolha custa
+
+O preço é real. Toda consulta que faz aritmética sobre `valor` fica mais longa e
+mais sujeita a erro. Um analista que escrever `SELECT sum(valor)` recebe erro de
+tipo. Ferramentas de BI que inferem tipo pelo catálogo tratarão a coluna como
+categoria em vez de medida.
+
+`string` não resolve o problema, apenas o desloca: sai da leitura, onde ninguém o
+vê, e entra na consulta, onde fica visível e alguém precisa tratá-lo. Aceitei
+essa troca. Prefiro uma coluna incômoda que obriga a decisão a ser explícita a
+uma coluna confortável que descarta R$ 134,7 mil sem avisar.
+
+Nenhum dos três tipos corrige a origem. Enquanto o produtor emitir `"9,49"`,
+alguém pagará por isso, seja em valor descartado, seja em conversão repetida. O
+tipo declarado decide apenas quem paga e se a conta aparece.
+
+---
+
+## DECISÃO 02: o tipo das colunas de tempo
+
+**Escolhi `timestamp`, para `data_corrida` e para `fim`.**
+
+### A hipótese que eu tinha antes de testar
+
+O produtor emite as duas colunas em ISO 8601 com sufixo de fuso:
+
+```
+data_corrida: 2026-08-22T00:47:19Z
+```
+
+Verifiquei 51.840 linhas e todas seguem esse formato, sem exceção.
+
+O tipo `timestamp` do Hive documenta aceitar `yyyy-MM-dd HH:mm:ss`, com espaço
+separando data e hora e sem sufixo. O dado traz um `T` no lugar do espaço e um
+`Z` ao final. Minha hipótese era que nenhuma das duas colunas converteria e que
+as 17.280 linhas do dia viriam nulas.
+
+### O que o SELECT devolveu
+
+Subi a stack com `timestamp` declarado e contei:
+
+```sql
+SELECT count(*) AS total, count(data_corrida) AS com_data, count(fim) AS com_fim
+FROM corridas WHERE dt = '2026-08-22';
+```
+
+| total | com_data | com_fim |
+| --- | --- | --- |
+| 17.280 | 17.280 | 17.280 |
+
+Zero nulos. **Minha hipótese estava errada.**
+
+Comparando três registros na tabela e no arquivo bruto:
+
+| corrida_id | no S3 | na tabela |
+| --- | --- | --- |
+| c-00501121 | `2026-08-22T00:47:19Z` | `2026-08-22 00:47:19.000` |
+| c-00501122 | `2026-08-22T00:58:21Z` | `2026-08-22 00:58:21.000` |
+
+O `org.openx.data.jsonserde.JsonSerDe` aceita ISO 8601 com `T` e com `Z`, e não
+apenas o formato documentado pelo tipo. Deduzi a incompatibilidade da
+documentação, e o SerDe comporta-se de maneira mais permissiva que ela.
+
+### O que a conversão faz com o fuso
+
+O horário de parede é idêntico nos dois lados: `00:47:19` entra e `00:47:19` sai.
+O `Z` foi descartado, não convertido.
+
+Para este lake isso é indiferente, porque toda a origem emite em UTC. Registro
+como risco: se um produtor passar a enviar `-03:00` em vez de `Z`, o valor será
+lido como horário de parede sem conversão, e a diferença de três horas entrará na
+tabela sem nenhum sinal. Não testei esse caso, porque não há dado assim hoje.
+
+### O que medi do lado de `string`
+
+Para não supor também deste lado, criei uma tabela sobre o mesmo objeto do S3 com
+as duas colunas como `string`. O texto chega exatamente como foi escrito, sem
+perda. Mas a pergunta de negócio deixa de compilar:
+
+```sql
+SELECT count(*) FROM corridas WHERE hour(data_corrida) BETWEEN 0 AND 4;
+```
+
+```
+FUNCTION_NOT_FOUND: Unexpected parameters (varchar) for function hour.
+```
+
+Não é resultado errado, é recusa. Para responder o mesmo, é preciso converter
+dentro da consulta:
+
+```sql
+WHERE hour(from_iso8601_timestamp(data_corrida)) BETWEEN 0 AND 4
+```
+
+Isso funciona e devolveu 1.274 corridas na madrugada. O custo é que a conversão
+passa a ser obrigatória em toda pergunta que envolva tempo.
+
+| | `timestamp` | `string` |
+| --- | --- | --- |
+| Linhas convertidas | 17.280 de 17.280 | não se aplica, é texto cru |
+| Dado perdido | nenhum | nenhum |
+| `hour(data_corrida)` | funciona | `FUNCTION_NOT_FOUND` |
+| Pergunta da madrugada | direta | exige `from_iso8601_timestamp` |
+
+Os dois preservam o dado. `timestamp` preserva e ainda entrega o tipo pronto para
+a pergunta que motivou o lake, que é sobre corridas na madrugada:
+
+```sql
+SELECT bairro, count(*) AS corridas FROM corridas
+WHERE dt = '2026-08-22' AND hour(data_corrida) BETWEEN 0 AND 4
+GROUP BY bairro ORDER BY 2 DESC LIMIT 5;
+```
+
+| bairro | corridas |
+| --- | --- |
+| Boa Viagem | 252 |
+| Pina | 96 |
+| Recife Antigo | 77 |
+
+### O critério comum às duas primeiras decisões
+
+As conclusões foram opostas, mas o critério foi o mesmo: **declarar o tipo mais
+forte que o dado real suporta sem perda**. Em `valor` isso é `string`, porque o
+dado não suporta `double`. Em `data_corrida` e `fim` isso é `timestamp`, porque o
+dado suporta. O que mudou entre os dois casos não foi o princípio, foi a medição.
+
+Se eu tivesse declarado `string` sem testar, teria entregue uma coluna de texto
+onde cabia um tipo temporal, com uma justificativa que citaria uma
+incompatibilidade inexistente. O teste custou um deploy e três consultas.
+
+---
+
+## DECISÃO 03: `ignore.malformed.json`
+
+**Escolhi `"true"`.**
+
+### O dado de hoje não decide
+
+Antes de escolher, verifiquei se a questão sequer se manifesta no lake atual. Li
+as 518.400 linhas com um parser de JSON e contei as falhas: nenhuma. Todas são
+JSON válido.
+
+Com o dado que existe hoje, `"true"` e `"false"` produzem resultados idênticos em
+qualquer consulta. A decisão não é sobre este dado, e sim sobre o dia em que o
+produtor emitir uma linha truncada.
+
+### O teste que forcei
+
+Subi um objeto com quatro linhas, sendo a terceira um JSON com a chave sem
+fechar, e criei duas tabelas idênticas sobre ele, diferindo apenas neste
+parâmetro.
+
+| Consulta | `"false"` | `"true"` |
+| --- | --- | --- |
+| `SELECT count(*)` | 4 | 4 |
+| `SELECT corrida_id, bairro` | falha | 4 linhas |
+
+Com `"false"`, a consulta que projeta colunas termina em `FAILED`:
+
+```
+HIVE_CURSOR_ERROR: Failed to read file at s3://.../parte-0001.json
+```
+
+Com `"true"`, a mesma consulta responde, e a linha quebrada aparece como registro
+com todos os campos nulos: `total = 4`, `válidas = 3`, `fantasmas = 1`.
+
+### Dois achados que mudaram minha leitura de `"false"`
+
+**`"false"` não falha sempre.** O `count(*)` passou nas duas tabelas. Contar
+linhas não obriga o SerDe a desserializar os campos, então o dado ruim nunca é
+tocado. Apenas a consulta que projeta coluna quebra. Um painel que só conta
+corridas por dia continuaria verde por semanas com um arquivo corrompido no lake.
+O alarme depende do formato da pergunta, e não da existência do problema.
+
+**A mensagem aponta o arquivo, não a linha.** Num objeto de 3,9 MB com 17.280
+linhas, localizar a linha ruim é trabalho manual, feito enquanto a tabela inteira
+está indisponível para todos.
+
+### Por que escolhi `"true"`
+
+Porque o custo de `"false"` recai sobre quem não tem relação com o problema, e o
+benefício dele não é confiável. Uma única linha ruim tornaria a tabela ilegível
+para todas as consultas que projetam coluna, de todos os usuários, até que alguém
+editasse o objeto no S3. O produtor erra e os analistas pagam, com uma
+indisponibilidade que a mensagem de erro não explica.
+
+É a mesma orientação da DECISÃO 01, aplicada a outro ponto do caminho: manter o
+sistema respondendo e tornar o defeito contável, em vez de interromper a leitura.
+
+### O que essa escolha custa
+
+A linha quebrada vira uma linha fantasma. Ela entra no `count(*)`, inflando a
+contagem do dia, e todos os seus campos são nulos, o que faz o defeito parecer
+"dado faltando" em vez de "dado corrompido". São dois problemas distintos que
+`"true"` torna indistinguíveis à primeira vista.
+
+Por isso a escolha só se sustenta acompanhada de uma consulta de vigilância:
+
+```sql
+SELECT dt, count(*) AS total, count(corrida_id) AS válidas,
+       count(*) - count(corrida_id) AS fantasmas
+FROM corridas GROUP BY dt
+HAVING count(*) - count(corrida_id) > 0;
+```
+
+Qualquer linha devolvida é um objeto com JSON quebrado. Hoje ela retorna vazia.
+
+Registro a limitação: essa consulta não roda sozinha. Não há nada neste template
+que a execute nem que avise alguém se ela deixar de vir vazia. `"true"` transfere
+a detecção do motor de consulta para uma rotina que ainda não existe. `"false"`
+tampouco resolveria isso, apenas trocaria a detecção tardia por uma
+indisponibilidade imediata, e ainda assim só em algumas consultas.
+
+---
+
+## DECISÃO 04: quantas partições declarar
+
+**Declarei três partições: anteontem, ontem e hoje.** As outras vinte e sete
+permanecem no S3, pagas e invisíveis para quem consulta.
+
+### Duas perguntas distintas
+
+Há duas questões dentro desta decisão, e confundi-las leva à conclusão errada. A
+primeira é de que tamanho é cada fatia do dado. A segunda é quantas fatias eu
+registro no catálogo.
+
+**O tamanho da fatia** determina o custo de uma consulta filtrada, porque o
+Athena abre a fatia inteira em que o filtro cai:
+
+| Fatiamento | Partições | Uma consulta de um dia lê |
 | --- | --- | --- |
 | nenhum | 0 | 117.655.606 bytes |
-| por mes | 1 | 117.655.606 bytes |
+| por mês | 1 | 117.655.606 bytes |
 | por dia | 30 | 3.921.495 bytes |
-| por hora | 720 | cerca de 163.000 bytes |
 
-Fatiar mais fino barateia a consulta filtrada, e barateia muito: trocar mes por
-dia derruba a leitura em trinta vezes, sem mudar uma linha da pergunta.
+Fatiar mais fino barateia, e barateia muito. Essa parte, porém, não é decisão
+deste template: o gerador já grava uma pasta por dia, e eu herdo a granularidade.
 
-Essa parte, porem, nao e uma decisao que este template toma. O layout chega
-pronto do gerador, que grava uma pasta por dia em `raw/corridas/dt=AAAA-MM-DD/`.
-A granularidade de um dia ja esta dada, e eu a herdo.
+**O número de fatias registradas** é o que de fato decido, e o efeito é outro:
 
-### Pergunta 2: quantas fatias registrar
-
-Essa sim e minha, e e o que a DECISAO 04 decide de fato.
-
-Sem Crawler, particao no S3 e particao no catalogo sao duas coisas separadas. O
-objeto existe no armazenamento, mas o Athena so o enxerga se houver um recurso
-`AWS::Glue::Partition` declarado apontando para ele. Nao ha processo nenhum
-neste template que faca esse registro sozinho.
-
-O efeito de registrar mais ou menos:
-
-| Particoes registradas | `WHERE dt = 'hoje'` le | `SELECT count(*)` sem filtro le |
+| Partições registradas | `WHERE dt = 'hoje'` lê | `SELECT count(*)` sem filtro lê |
 | --- | --- | --- |
-| 3 | 3.921.495 bytes | 11.765.561 bytes |
-| 10 | 3.921.495 bytes | 39.218.535 bytes |
+| 3 | 3.921.495 bytes | 11.765.273 bytes |
 | 30 | 3.921.495 bytes | 117.655.606 bytes |
 
-A coluna do meio nao se move. Declarar a particao de doze de julho nao deixa a
-consulta de hoje mais barata, porque ela continua abrindo um arquivo so. O que
-cresce e a coluna da direita, a consulta sem filtro, que varre tudo o que
-estiver registrado.
+A coluna do meio não se move. Declarar a partição de doze de julho não barateia a
+consulta de hoje, que continua abrindo um arquivo só. O que cresce é a consulta
+sem filtro. Quem reduz o custo é o filtro `WHERE dt =` somado à granularidade da
+fatia, e não a quantidade de partições catalogadas.
 
-O resumo das duas perguntas: quem barateia a consulta e o filtro `WHERE dt =`
-somado a granularidade da fatia. A quantidade de particoes no catalogo nao
-barateia consulta nenhuma.
+### Registrar poucas partições não é economia
 
-### Registrar poucas particoes nao e economia
+Uma pergunta por um dia não declarado, como `WHERE dt = '2026-07-15'`, devolve
+zero linhas e quase não cobra, porque quase nada foi lido. Parece economia, mas
+não é. Quem perguntou recebeu resposta vazia sem qualquer sinal de que o dia
+existe no S3 e apenas não está catalogado. Não há erro, aviso nem log.
 
-Essa e a parte que quero deixar escrita porque parece o contrario do que e.
+O barato não veio de ler menos para chegar à mesma resposta. Veio de não
+responder. São vinte e sete dias de corrida armazenados, presentes na fatura do
+S3, e inexistentes para qualquer pergunta feita a essa tabela.
 
-Uma pergunta por um dia que eu nao declarei, digamos `WHERE dt = '2026-07-15'`,
-devolve zero linhas e cobra quase nada, porque leu quase nada. Isso se parece com
-economia. Nao e. Quem perguntou recebeu uma resposta vazia sem nenhum sinal de
-que aquele dia existe no S3 e apenas nao esta catalogado. Nao ha erro, nao ha
-aviso, nao ha entrada de log.
+### O que a pergunta de negócio exige
 
-O barato, neste caso, nao veio de ler menos para chegar na mesma resposta. Veio
-de nao responder. Sao vinte e sete dias de corrida que estao no armazenamento,
-aparecem na fatura do S3, e para qualquer pergunta feita a essa tabela nao
-existem.
+A pergunta que motivou o lake é "quais bairros do Recife concentram corridas na
+madrugada, e desde quando". O "desde quando" é uma pergunta sobre histórico.
 
-### O que a pergunta de negocio exige
+Três partições dão três dias de janela, o que não responde "desde quando".
+Registro isso como limitação real da entrega, em vez de sustentar que três dias
+atendem ao caso de uso.
 
-A pergunta que motivou o lake e "quais bairros do Recife concentram corridas na
-madrugada, e desde quando". A segunda metade dela, o "desde quando", quer saber
-a partir de que momento o padrao aparece.
+### Por que fiquei em três
 
-Tres particoes dao tres dias de janela. Tres dias nao respondem "desde quando",
-respondem "anteontem, ontem e hoje". Quem consultar essa tabela vai receber um
-resultado correto sobre um recorte que nao e o da pergunta, e nao tem como notar
-isso pela resposta.
+O `deploy.sh` calcula exatamente três datas e passa três overrides fixos ao
+template. Declarar uma quarta partição exigiria alterar o `deploy.sh` além do
+`template.yaml`, e o `deploy.sh` não faz parte do que entrego. Quem recebesse
+esta entrega não conseguiria reproduzir a stack, porque faltaria a peça que
+informa as datas adicionais.
 
-Essa e uma limitacao real da minha entrega, e prefiro registra-la aqui a fingir
-que tres particoes atendem o caso de uso.
+A escolha, portanto, não foi entre três e trinta. Foi entre três partições com
+ferramental coerente, ou mais partições e uma entrega que não se reproduz.
 
-### Por que fiquei em tres mesmo assim
+### O custo que cresce a cada partição
 
-O `deploy.sh` calcula exatamente tres datas, `hoje-2`, `hoje-1` e `hoje`, e passa
-tres overrides fixos para o template. Declarar uma quarta particao exigiria
-mudar o `deploy.sh` alem do `template.yaml`, e o `deploy.sh` nao faz parte do que
-eu entrego. Quem lesse a minha entrega nao conseguiria reproduzir a stack, porque
-faltaria a peca que passa as datas extras.
+Cada partição é um recurso escrito manualmente, com o `Location` apontando para a
+chave exata do objeto. Se o `Location` não corresponder à chave, o Athena devolve
+zero linhas e nenhum erro.
 
-Entao a escolha aqui nao foi entre tres e trinta. Foi entre tres particoes e um
-ferramental coerente, ou mais particoes e uma entrega que nao se reproduz. Fiquei
-com tres, e registro o que isso custa nas duas secoes acima.
+E há um problema que não se resolve escrevendo mais recursos. Amanhã o gerador
+produz um dia novo, que chega ao S3 pelo `aws s3 sync` e não chega ao catálogo,
+porque neste template não existe processo que registre partição. O registro só
+ocorre quando alguém edita o arquivo e executa o deploy outra vez.
 
-### O efeito colateral sobre o teto
+Declarar partição manualmente não é trabalho que se faça uma vez. Repete-se a
+cada dia novo, indefinidamente, ou a tabela envelhece em silêncio. Subir de três
+para trinta não resolve isso: apenas adia o mesmo problema em vinte e sete dias.
 
-Com tres particoes registradas, a consulta sem filtro varre cerca de 11.765.561
-bytes, e a consulta filtrada varre 3.921.495. O teto da DECISAO 05 precisa cair
-entre esses dois numeros, e a AWS impoe um piso de 10.485.760 bytes para
-`BytesScannedCutoffPerQuery`.
+---
 
-A janela util fica entre 10.485.760 e 11.765.560 bytes, cerca de 1,28 MB, algo
-como 11% de folga. E uma margem estreita: se uma das tres particoes sair menor
-que a media, a consulta sem filtro passa por baixo do teto e o freio deixa de
-tocar exatamente na consulta que ele existe para barrar. Por isso o numero
-da DECISAO 05 sai de medicao, e nao da media que eu estimei aqui.
+## DECISÃO 05: o teto de bytes por consulta
 
-Se eu pudesse declarar cinco particoes, a consulta sem filtro subiria para cerca
-de 19.609.268 bytes e a folga passaria de 1,28 MB para quase 9 MB. A restricao do
-`deploy.sh` custa essa margem.
+**Escolhi `10485760` bytes, dez mebibytes**, que é o menor valor aceito pela AWS
+para `BytesScannedCutoffPerQuery`.
 
-### O custo que cresce a cada particao declarada
+### O que o teto faz
 
-Cada particao e um recurso escrito a mao, com o `Location` apontando para a chave
-exata do objeto no S3. Se o `Location` nao bater com a chave, o Athena devolve
-zero linha e nenhum erro: a resposta parece certa e nao e, e nada no caminho
-sinaliza a diferenca.
+O Athena cobra por byte lido, e não por tempo de execução. Ele não sabe o preço
+de uma consulta antes de executá-la: começa a ler e vai contando. O teto é o
+ponto em que ele desiste. Ultrapassado o limite, a execução é abortada e não
+devolve resultado, nem parcial. Com `EnforceWorkGroupConfiguration: true`,
+ninguém contorna isso na hora da consulta.
 
-E ha um problema que nao se resolve escrevendo mais recursos. Amanha o gerador
-produz um dia novo. Esse dia chega ao S3 pelo `aws s3 sync` e nao chega ao
-catalogo, porque neste template nao existe nenhum processo que registre particao:
-o registro so acontece quando alguem edita o arquivo e roda o deploy outra vez.
-No dia seguinte, a particao que hoje e a mais recente passa a ser a de ontem, e o
-catalogo para de refletir o armazenamento ate que esse deploy aconteca.
+### O que medi
 
-Declarar particao a mao, portanto, nao e um trabalho que se faz uma vez. E um
-trabalho que se repete a cada dia novo, indefinidamente, ou a tabela envelhece em
-silencio. Subir de tres para trinta nao resolve isso, apenas adia o mesmo
-problema em vinte e sete dias.
+Somei os bytes dos três objetos que o `deploy.sh` declara:
 
-### Resumo
-
-| Eixo | Efeito |
+| Partição | Bytes |
 | --- | --- |
-| Granularidade da fatia (um dia) | barateia a consulta filtrada, e nao e decisao minha |
-| Filtro `WHERE dt =` na consulta | e o que de fato derruba o custo, de 11,77 MB para 3,92 MB |
-| Numero de particoes registradas | nao muda a consulta filtrada, so a sem filtro |
-| Registrar poucas | nao economiza, esconde dado e devolve resposta vazia sem aviso |
-| Registrar muitas | alarga a folga do teto e multiplica o trabalho manual |
-| Particao do dia seguinte | ninguem registra, com tres ou com trinta |
+| `dt=2026-08-20` | 3.921.456 |
+| `dt=2026-08-21` | 3.922.322 |
+| `dt=2026-08-22` | 3.921.495 |
+| **soma** | **11.765.273** |
 
----
+Disso saem os dois limites: a consulta filtrada lê 3.921.495 bytes e precisa
+passar; a consulta sem filtro lê 11.765.273 bytes e precisa ser barrada. O teto
+tem de ficar entre os dois.
 
-## DECISAO 01: o tipo da coluna `valor`
+### A restrição que estreita a faixa
 
-*Pendente. Opcoes no esqueleto: `double`, `string` ou `decimal(10,2)`. Em cerca
-de 1,5% dos eventos (7.688 de 518.400) o produtor manda o valor como texto com
-virgula decimal, no formato `"17,82"`. A justificativa precisa dizer o que eu
-aceito perder.*
+A AWS não aceita `BytesScannedCutoffPerQuery` abaixo de 10.485.760 bytes. Isso
+não vem do enunciado: é limite do próprio serviço.
 
----
+```
+3.921.495 ------- 10.485.760 ======== 11.765.272 ------->
+consulta filtrada   piso da AWS       teto máximo útil
+                        |__ faixa real __|
+                           1.279.513 bytes
+```
 
-## DECISAO 02: o tipo das colunas de tempo
+Restam 1.279.513 bytes de manobra, cerca de 1,22 MiB.
 
-*Pendente. Aplica-se a `data_corrida` e `fim`. Opcoes: `timestamp` ou `string`.
-O produtor emite no formato `AAAA-MM-DDTHH:MM:SSZ`. O esqueleto exige que a
-justificativa relate o que o SELECT devolveu de verdade, nao o que eu supus.*
+### Por que escolhi o extremo inferior
 
----
+Dentro da faixa, todo valor funciona. Eles diferem na folga até a consulta que
+precisa ser barrada:
 
-## DECISAO 03: `ignore.malformed.json`
+| Teto | Distância até a consulta sem filtro |
+| --- | --- |
+| 10.485.760 | 1.279.513 bytes |
+| 11.000.000 | 765.273 bytes |
+| 11.700.000 | 65.273 bytes |
 
-*Pendente. Opcoes: `"true"`, em que a linha quebrada vira nulo e a consulta
-responde, ou `"false"`, em que uma linha ruim derruba a consulta inteira com
-`HIVE_BAD_DATA`. A justificativa precisa dizer quem paga a conta de cada
-escolha.*
+O risco é assimétrico. Do lado inferior, mesmo no piso o teto fica 2,67 vezes
+acima da consulta filtrada, que passa com folga larga e sem risco de ser barrada
+indevidamente. Do lado superior, cada aproximação encurta a margem contra a
+consulta que precisa morrer. Como o risco está concentrado de um lado, escolhi o
+extremo oposto a ele.
 
----
+### O resultado observado
 
-## DECISAO 05: o teto de bytes por consulta
+Na stack em execução, a consulta sem filtro foi interrompida em exatamente
+10.485.760 bytes, com o motivo `Bytes scanned limit was exceeded` no histórico do
+workgroup, e a consulta filtrada respondeu lendo 3.921.495 bytes. O comportamento
+pretendido ocorreu.
 
-*Pendente. Depende do numero de particoes fixado na DECISAO 04. O piso de
-10.485.760 bytes e da AWS; o teto util maximo declarado no esqueleto e
-117.655.605 bytes, um byte a menos que o lake inteiro. O valor escolhido precisa
-reprovar a consulta sem filtro e aprovar a consulta filtrada.*
+### O que este número admite sobre si mesmo
+
+Este teto não foi escolhido, foi espremido. A AWS pressiona por baixo com o piso
+de 10 MiB e as três partições pressionam por cima com 11,77 MB. Restou 1,2 MB, e
+dentro desse espaço a única decisão possível era de que lado encostar.
+
+Duas consequências valem mais que o número em si.
+
+A primeira: o teto está atrelado à quantidade de partições declaradas, e não ao
+tamanho do lake. Se eu declarasse as trinta, a consulta sem filtro varreria
+117.655.606 bytes e o mesmo teto continuaria funcionando com folga dez vezes
+maior. A margem estreita é efeito da DECISÃO 04, não do Athena.
+
+A segunda: o valor é absoluto em bytes, e não uma fração do total. Ele protege
+contra uma consulta larga em uma tabela pequena, mas não escala junto se a tabela
+crescer. Um teto proporcional não existe nesta configuração: se o lake crescer, o
+número precisa ser revisto manualmente, assim como as partições.

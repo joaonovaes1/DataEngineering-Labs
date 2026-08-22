@@ -1,0 +1,11 @@
+# saida do gerador de eventos — 112 MB, nao versionar
+saida/
+
+# credenciais AWS, nunca
+.aws/
+*.pem
+credentials
+
+# ruido do SO
+Thumbs.db
+.DS_Store

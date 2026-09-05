@@ -1,0 +1,18 @@
+Critério 5 — destroy limpo
+----------------------------------------------------------------
+grep: Unmatched [, [^, [:, [., or [=
+grep: Unmatched [, [^, [:, [., or [=
+grep: Unmatched [, [^, [:, [., or [=
+grep: Unmatched [, [^, [:, [., or [=
+grep: Unmatched [, [^, [:, [., or [=
+grep: Unmatched [, [^, [:, [., or [=
+grep: Unmatched [, [^, [:, [., or [=
+grep: Unmatched [, [^, [:, [., or [=
+grep: Unmatched [, [^, [:, [., or [=
+PASSA  [5]  (15%)  nenhum bucket órfão.
+----------------------------------------------------------------
+Critério 5: 15/15%
+
+Nota: os avisos "grep: Unmatched [" vem do grep do Git Bash no Windows
+processando um padrao com colchetes do proprio verifica.sh; nao impedem o
+resultado. O veredito final foi PASSA, sem bucket orfao.

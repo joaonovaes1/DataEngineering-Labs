@@ -1,6 +1,12 @@
 # saida do gerador de eventos — 112 MB, nao versionar
 saida/
 
+# state local do Terraform, nao versionar
+.terraform/
+terraform.tfstate
+terraform.tfstate.backup
+*.tfstate.*.backup
+
 # credenciais AWS, nunca
 .aws/
 *.pem

@@ -1,0 +1,44 @@
+Exercício 02 — verificação (região us-east-1, hoje 2026-09-04)
+----------------------------------------------------------------
+Critério 0 — Terraform, schema declarado, sem Crawler (ELIMINATÓRIO)
+OK     [0]  requisito atendido (não pontua; libera o resto)
+----------------------------------------------------------------
+Critério 1 — os cinco outputs de contrato
+       bucket_name = eda-a08-lake-jmnfa
+       database_name = eda_a08_lake_jmnfa
+       table_name = corridas
+       workgroup_name = eda-a08-wg-jmnfa
+       teto_bytes = 10485760
+PASSA  [1]  (10%)  os cinco outputs existem e estão preenchidos.
+----------------------------------------------------------------
+Critério 2 — schema declarado (≥8 colunas) e partição dt
+       colunas declaradas: 9 · chave de partição: dt
+PASSA  [2]  (25%)  schema com 9 colunas e partição dt.
+----------------------------------------------------------------
+Critério 3 — ≥3 partições, uma delas a de hoje
+       partições registradas: 7 -> 2026-08-29   2026-09-03      2026-09-01      2026-09-04      2026-08-30      2026-09-02      2026-08-31
+PASSA  [3]  (15%)  7 partições, incluindo a de hoje (2026-09-04).
+----------------------------------------------------------------
+Critério 4 — o teto mata a consulta larga e deixa passar a estreita
+       teto declarado: 10485760 bytes
+       larga:    estado=CANCELLED  motivo=Bytes scanned limit was exceeded
+       estreita: estado=SUCCEEDED  bytes=3408166
+FALHA  [4]  (15%)  larga_barrada=0 estreita_passou=1
+       se a larga não morreu: seu teto está alto demais para o volume que você subiu
+       (suba mais dias, registre mais partições, ou baixe o teto — é a DECISÃO 05).
+----------------------------------------------------------------
+Critério 6 — DECISOES.md (avaliação manual da justificativa)
+       não achei ../DECISOES.md — crie-o com uma frase por decisão (01 a 05).
+----------------------------------------------------------------
+Resumo dos critérios automáticos: 50 / 65 pontos-percentuais
+       faltam o critério 5 (rode ./verifica.sh --pos-destroy depois do destroy) e o 6 (manual).
+
+Cole o bloco abaixo no seu PR:
+  bucket=eda-a08-lake-jmnfa  db=eda_a08_lake_jmnfa  table=corridas  wg=eda-a08-wg-jmnfa  teto=10485760
+  criterios_automaticos=50/65  data=2026-09-05T01:33:08Z
+
+Nota: o critério 4 aparece como FALHA aqui porque o verifica.sh só reconhece
+o estado FAILED como corte valido, e o Athena devolveu CANCELLED (comportamento
+padrao do engine v3 para corte por BytesScannedCutoffPerQuery). O teto
+funcionou de fato; ver evidencia/criterio-04-o-teto-funcionou.md. Este arquivo
+tambem antecede a criacao do DECISOES.md, por isso o aviso do criterio 6.

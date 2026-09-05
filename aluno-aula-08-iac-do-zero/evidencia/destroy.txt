@@ -1,0 +1,38 @@
+Nota: uma primeira tentativa de "terraform destroy" foi rodada a partir da
+pasta verificacao/ (sem state do Terraform). Resultado: "Destroy complete!
+Resources: 0 destroyed." (nada ali para destruir, sem efeito colateral).
+Corrigido o diretorio para terraform/, o destroy real rodou:
+
+aws_s3_bucket_public_access_block.lake: Destroying... [id=eda-a08-lake-jmnfa]
+aws_s3_bucket_public_access_block.results: Destroying... [id=eda-a08-results-jmnfa]
+aws_athena_workgroup.wg: Destroying... [id=eda-a08-wg-jmnfa]
+aws_glue_partition.p["2026-09-02"]: Destroying... [id=325583868777:eda_a08_lake_jmnfa:corridas:2026-09-02]
+aws_glue_partition.p["2026-09-04"]: Destroying... [id=325583868777:eda_a08_lake_jmnfa:corridas:2026-09-04]
+aws_glue_partition.p["2026-09-03"]: Destroying... [id=325583868777:eda_a08_lake_jmnfa:corridas:2026-09-03]
+aws_glue_partition.p["2026-08-31"]: Destroying... [id=325583868777:eda_a08_lake_jmnfa:corridas:2026-08-31]
+aws_glue_partition.p["2026-08-29"]: Destroying... [id=325583868777:eda_a08_lake_jmnfa:corridas:2026-08-29]
+aws_glue_partition.p["2026-08-30"]: Destroying... [id=325583868777:eda_a08_lake_jmnfa:corridas:2026-08-30]
+aws_glue_partition.p["2026-09-01"]: Destroying... [id=325583868777:eda_a08_lake_jmnfa:corridas:2026-09-01]
+aws_glue_partition.p["2026-09-03"]: Destruction complete after 0s
+aws_glue_partition.p["2026-09-01"]: Destruction complete after 0s
+aws_glue_partition.p["2026-09-02"]: Destruction complete after 0s
+aws_glue_partition.p["2026-08-29"]: Destruction complete after 0s
+aws_glue_partition.p["2026-08-31"]: Destruction complete after 0s
+aws_glue_partition.p["2026-08-30"]: Destruction complete after 0s
+aws_glue_partition.p["2026-09-04"]: Destruction complete after 0s
+aws_glue_catalog_table.corridas: Destroying... [id=325583868777:eda_a08_lake_jmnfa:corridas]
+aws_athena_workgroup.wg: Destruction complete after 0s
+aws_s3_bucket_public_access_block.lake: Destruction complete after 0s
+aws_s3_bucket_public_access_block.results: Destruction complete after 0s
+aws_s3_bucket.results: Destroying... [id=eda-a08-results-jmnfa]
+aws_glue_catalog_table.corridas: Destruction complete after 1s
+aws_glue_catalog_database.db: Destroying... [id=325583868777:eda_a08_lake_jmnfa]
+aws_s3_bucket.lake: Destroying... [id=eda-a08-lake-jmnfa]
+aws_glue_catalog_database.db: Destruction complete after 0s
+aws_s3_bucket.results: Destruction complete after 2s
+aws_s3_bucket.lake: Destruction complete after 1s
+
+Destroy complete! Resources: 14 destroyed.
+
+14 = 7 recursos fixos (2 buckets, 2 blocos de acesso publico, 1 database,
+1 tabela, 1 workgroup) + 7 particoes.

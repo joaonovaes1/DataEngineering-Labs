@@ -1,11 +1,51 @@
-# saida do gerador de eventos — 112 MB, nao versionar
-saida/
+# =============================================================================
+# Exercicio 03 (Aula 12) — modulo + backend remoto + workspace
+# O item 4 do "o que mais reprova" e comitar estado ou backend.hcl. Este
+# arquivo existe para isso nao acontecer.
+# =============================================================================
 
-# credenciais AWS, nunca
+# ---- Estado do Terraform -----------------------------------------------------
+# No inicio do exercicio o estado e LOCAL; depois do -migrate-state ele vive no
+# S3. Nenhuma das duas fases deve versionar tfstate.
+.terraform/
+terraform.tfstate
+terraform.tfstate.backup
+*.tfstate
+*.tfstate.backup
+*.tfstate.*.backup
+
+# Estado local dos workspaces (terraform workspace new cria esta pasta antes da
+# migracao para o backend remoto).
+terraform.tfstate.d/
+
+# ---- Backend -----------------------------------------------------------------
+# backend.hcl carrega o nome do bucket/conta. O .example fica versionado (o
+# padrao "backend.hcl" nao casa com "backend.hcl.example").
+backend.hcl
+
+# ---- Ruido do Terraform ------------------------------------------------------
+crash.log
+crash.*.log
+*.tfplan
+*.tfplan.*
+.terraformrc
+terraform.rc
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# NAO ignorado de proposito:
+#   .terraform.lock.hcl  — trava das versoes do provider, deve ser comitada
+#   terraform.tfvars     — so tem o sufixo; nao e segredo
+#   *.example            — backend.hcl.example e terraform.tfvars.example
+
+# ---- Credenciais AWS, nunca --------------------------------------------------
 .aws/
 *.pem
 credentials
+*.tfvars.secret
 
-# ruido do SO
+# ---- Ruido do SO -------------------------------------------------------------
 Thumbs.db
 .DS_Store

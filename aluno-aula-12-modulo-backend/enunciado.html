@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Exercício 03 — refatorar em módulo, com plan limpo</title>
+<style>
+  :root{--laranja:#F15A22;--ink:#1A1A1A;--grafite:#4D4D4D;--cinza:#8A8A8A;--claro:#E8E8E8;--papel:#FFFFFF;--codebg:#F4F4F4;--outbg:#FBFBFB;}
+  *{box-sizing:border-box}
+  body{font-family:Arial,Helvetica,sans-serif;color:var(--ink);background:var(--papel);margin:0;line-height:1.5;font-size:16px}
+  .wrap{max-width:980px;margin:0 auto;padding:40px 26px 90px}
+  .overline{font-size:12px;font-weight:bold;letter-spacing:2px;color:var(--laranja);text-transform:uppercase;margin:0 0 6px}
+  h1{font-size:30px;margin:0 0 6px;line-height:1.15}
+  h1 .k{color:var(--laranja)}
+  .sub{color:var(--grafite);font-size:16px;margin:0 0 22px}
+  .rule{height:4px;width:64px;background:var(--laranja);border:0;margin:16px 0 24px}
+  h2{font-size:21px;margin:42px 0 6px;padding-top:22px;border-top:2px solid var(--ink)}
+  h2 .num{color:var(--laranja);font-weight:bold}
+  h2 .clk{font-size:13px;font-weight:normal;color:var(--cinza);margin-left:8px}
+  .intro{color:var(--grafite);margin:6px 0 14px}
+  .frase{background:#FDECE4;border-left:5px solid var(--laranja);padding:16px 20px;border-radius:0 6px 6px 0;font-size:18px;margin:18px 0}
+  .lead{background:#FAFAFA;border:1px solid var(--claro);border-radius:6px;padding:16px 18px;margin:16px 0}
+  .lead .lbl{font-size:11px;font-weight:bold;letter-spacing:1.5px;color:var(--laranja);text-transform:uppercase;display:block;margin-bottom:4px}
+  .meta{display:flex;gap:22px;flex-wrap:wrap;margin:10px 0 0;font-size:14px;color:var(--grafite)}
+  .meta b{color:var(--ink)}
+  .step{display:grid;grid-template-columns:44px 1fr;gap:14px;margin:18px 0;align-items:start}
+  .badge{background:var(--ink);color:#fff;font-weight:bold;font-size:15px;border-radius:8px;text-align:center;padding:7px 0;line-height:1.1}
+  .badge.hot{background:var(--laranja)}
+  .stepbody h3{font-size:16px;margin:2px 0 8px}
+  .do{font-size:11px;font-weight:bold;letter-spacing:1.2px;color:var(--laranja);text-transform:uppercase;margin:12px 0 3px}
+  code,kbd{font-family:"Courier New",monospace;background:var(--codebg);padding:1px 5px;border-radius:3px;font-size:14px}
+  pre{font-family:"Courier New",monospace;background:var(--codebg);border:1px solid var(--claro);padding:11px 13px;border-radius:5px;overflow-x:auto;font-size:13.5px;line-height:1.45;margin:6px 0;white-space:pre}
+  pre.out{background:var(--outbg);border-style:dashed}
+  pre .o{color:var(--laranja);font-weight:bold}
+  pre .c{color:var(--cinza)}
+  .outlbl{font-size:11px;font-weight:bold;letter-spacing:1px;color:var(--grafite);text-transform:uppercase;margin:10px 0 2px}
+  .warn{border-left:4px solid var(--laranja);background:#FDECE4;padding:9px 13px;margin:10px 0;border-radius:0 4px 4px 0;font-size:14px}
+  .warn b{color:var(--ink)}
+  .info{border-left:4px solid var(--cinza);background:#F6F6F6;padding:9px 13px;margin:10px 0;border-radius:0 4px 4px 0;font-size:14px;color:var(--grafite)}
+  .chk{margin:14px 0 0;padding:12px 15px;background:#FDECE4;border-radius:6px;font-size:14.5px}
+  .chk b{color:var(--ink)}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px}
+  th,td{border-bottom:1px solid var(--claro);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--ink);color:#fff;font-size:12px}
+  td.p{white-space:nowrap;font-weight:bold}
+  ul.sq{list-style:none;padding-left:0}
+  ul.sq li{position:relative;padding-left:22px;margin:6px 0}
+  ul.sq li::before{content:"";position:absolute;left:0;top:7px;width:9px;height:9px;background:var(--laranja)}
+  .foot{margin-top:52px;padding-top:16px;border-top:1px solid var(--claro);color:var(--cinza);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p class="overline">Engenharia de Dados · Ciclo 3 · Exercício</p>
+  <h1>Exercício 03 — refatorar em módulo, com <span class="k">plan limpo</span></h1>
+  <p class="sub">O único exercício do semestre que não constrói nada novo. Você reorganiza o código e move o estado — sem recriar um único recurso. Rode o <code>verifica.sh</code> antes de entregar.</p>
+  <hr class="rule">
+
+  <div class="frase">
+    Pegue a stack plana do ponto de partida (o seu Exercício 02, numa forma canônica) e transforme-a em <b>módulo + backend remoto + workspace</b>, com uma regra dura: o <code>terraform plan</code> no fim tem que dizer <b>“No changes”</b>. Mesma infraestrutura, código diferente, <b>zero recurso recriado</b>.
+  </div>
+
+  <div class="lead">
+    <span class="lbl">Por que isso é diferente</span>
+    <p style="margin:0">Construir do zero é fácil de provar: o recurso existe ou não. Refatorar é traiçoeiro: embrulhar a stack num módulo muda o <b>endereço</b> de cada recurso no estado, e o Terraform, se você deixar, <b>destrói e recria tudo</b> para "consertar" a diferença. O ofício aqui é mudar o código sem que a AWS perceba. A ferramenta é <code>terraform state mv</code>, e a prova é o <code>plan</code> limpo.</p>
+  </div>
+
+  <div class="meta">
+    <div><b>Tempo:</b> 90 min, em aula</div>
+    <div><b>Região:</b> us-east-1</div>
+    <div><b>Custo teto:</b> US$ 1,00</div>
+    <div><b>Backend:</b> o compartilhado (não deste exercício)</div>
+    <div><b>Entrega:</b> PR ao fim da aula</div>
+    <div><b>Vale:</b> a stack "módulo + backend + workspace" da AV1</div>
+  </div>
+
+  <!-- PASSO A PASSO -->
+  <h2><span class="num">Passo a passo</span></h2>
+  <p class="intro">Os comandos estão completos. A ordem é a lição: <b>mover o estado antes de aplicar</b>.</p>
+
+  <div class="step"><div class="badge">1</div><div class="stepbody">
+    <h3>Prepare o ambiente</h3>
+    <div class="do">Digite (troque seulogin; só minúsculas e números, sem hífen)</div>
+    <pre>export AWS_REGION=us-east-1
+export SUFIXO=seulogin
+cd terraform
+cp terraform.tfvars.example terraform.tfvars   # e preencha sufixo</pre>
+    <div class="info">Confira que o backend da disciplina está de pé: <code>aws s3 ls s3://eda-tfstate-$SUFIXO</code> e <code>aws dynamodb describe-table --table-name eda-tflock</code>. Ele não é deste exercício — só o usamos.</div>
+  </div></div>
+
+  <div class="step"><div class="badge">2</div><div class="stepbody">
+    <h3>Suba a stack plana (o ponto de partida)</h3>
+    <div class="do">Digite e confirme com <code>yes</code></div>
+    <pre>terraform init
+terraform apply -var="sufixo=$SUFIXO"</pre>
+    <div class="outlbl">Você deve ver</div>
+    <pre class="out">Apply complete! Resources: 6 added.</pre>
+    <div class="info">São seis recursos, todos na raiz, estado local. É o que você vai refatorar — sem recriá-los.</div>
+  </div></div>
+
+  <div class="step"><div class="badge">3</div><div class="stepbody">
+    <h3>Refatore o CÓDIGO em módulo (DECISÃO 01)</h3>
+    <ul class="sq">
+      <li>Crie a pasta <code>modules/lake/</code> com <code>main.tf</code>, <code>variables.tf</code>, <code>outputs.tf</code>.</li>
+      <li>Mova os seis blocos <code>resource</code> da raiz para <code>modules/lake/main.tf</code> — <b>sem mudar nada dentro deles</b> (mesmos nomes, mesmas propriedades).</li>
+      <li>Na raiz, troque os seis blocos por um só: <code>module "lake" { source = "./modules/lake"  sufixo = var.sufixo  teto_bytes = var.teto_bytes }</code>.</li>
+      <li>Preserve os cinco outputs, agora lendo do módulo (<code>module.lake.bucket_name</code>).</li>
+    </ul>
+    <div class="warn"><b>Regra de ouro:</b> se você mudar o nome de um recurso, ele deixa de casar com o que existe e vira recriação. Refatorar é reorganizar, não rebatizar.</div>
+  </div></div>
+
+  <div class="step"><div class="badge hot">4</div><div class="stepbody">
+    <h3>Veja o problema — dê um plan AGORA (o momento “aha”)</h3>
+    <div class="do">Digite</div>
+    <pre>terraform plan -var="sufixo=$SUFIXO"</pre>
+    <div class="outlbl">Você deve ver o Terraform querendo DESTRUIR e RECRIAR tudo</div>
+    <pre class="out">Plan: <span class="o">6 to add, 0 to change, 6 to destroy</span>.</pre>
+    <div class="info">Por quê? O código agora fala de <code>module.lake.aws_s3_bucket.lake</code>, mas o estado ainda guarda <code>aws_s3_bucket.lake</code>. Para o Terraform, o primeiro sumiu e o segundo apareceu — então ele quer apagar e criar. <b>Não aplique.</b> O próximo passo conserta isso.</div>
+  </div></div>
+
+  <div class="step"><div class="badge hot">5</div><div class="stepbody">
+    <h3>Mova o ESTADO — terraform state mv (DECISÃO 02)</h3>
+    <div class="do">Digite (um por recurso — muda o endereço no estado, não a AWS)</div>
+    <pre>terraform state mv aws_s3_bucket.lake                     module.lake.aws_s3_bucket.lake
+terraform state mv aws_s3_bucket_public_access_block.lake module.lake.aws_s3_bucket_public_access_block.lake
+terraform state mv aws_s3_bucket.results                  module.lake.aws_s3_bucket.results
+terraform state mv aws_glue_catalog_database.db           module.lake.aws_glue_catalog_database.db
+terraform state mv aws_glue_catalog_table.corridas        module.lake.aws_glue_catalog_table.corridas
+terraform state mv aws_athena_workgroup.wg                module.lake.aws_athena_workgroup.wg</pre>
+    <div class="outlbl">Você deve ver, seis vezes</div>
+    <pre class="out">Successfully moved 1 object(s).</pre>
+    <div class="info">Cada <code>state mv</code> diz ao Terraform: "esse recurso não sumiu — ele só mudou de endereço no seu mapa". Nenhuma chamada à AWS acontece.</div>
+  </div></div>
+
+  <div class="step"><div class="badge">6</div><div class="stepbody">
+    <h3>Prove que não recriou (plan limpo, ainda local)</h3>
+    <div class="do">Digite</div>
+    <pre>terraform plan -var="sufixo=$SUFIXO"</pre>
+    <div class="outlbl">Você deve ver</div>
+    <pre class="out"><span class="o">No changes.</span> Your infrastructure matches the configuration.</pre>
+    <div class="chk"><b>Metade do exercício, feita.</b> O código está em módulo e o <code>plan</code> está limpo — você reorganizou sem recriar. Falta levar o estado para o backend remoto.</div>
+  </div></div>
+
+  <div class="step"><div class="badge">7</div><div class="stepbody">
+    <h3>Migre o estado para o backend remoto</h3>
+    <div class="do">Digite (crie o backend.hcl e migre)</div>
+    <pre>cat > backend.hcl &lt;&lt;EOF
+bucket         = "eda-tfstate-$SUFIXO"
+key            = "aula12/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "eda-tflock"
+encrypt        = true
+EOF</pre>
+    <div class="do">Adicione o bloco backend em um arquivo (ex.: <code>backend.tf</code>) e rode</div>
+    <pre>terraform init -migrate-state -backend-config=backend.hcl</pre>
+    <div class="info">Adicione ao seu código: <code>terraform { backend "s3" { workspace_key_prefix = "eda-a12" } }</code>. O <code>init -migrate-state</code> pergunta se copia o estado local para o S3 — responda <code>yes</code>.</div>
+  </div></div>
+
+  <div class="step"><div class="badge">8</div><div class="stepbody">
+    <h3>Prove de novo — plan limpo, agora remoto</h3>
+    <div class="do">Digite</div>
+    <pre>terraform plan -var="sufixo=$SUFIXO"</pre>
+    <div class="outlbl">Você deve ver</div>
+    <pre class="out"><span class="o">No changes.</span></pre>
+    <div class="info">O estado está no S3 e o <code>plan</code> continua limpo: a migração de backend também não recriou nada.</div>
+  </div></div>
+
+  <div class="step"><div class="badge">9</div><div class="stepbody">
+    <h3>Use um workspace (DECISÃO 03)</h3>
+    <div class="do">Digite</div>
+    <pre>terraform workspace new dev
+terraform workspace select default</pre>
+    <div class="info">Seu backend já separa o estado por workspace (<code>workspace_key_prefix</code>). A stack migrada fica no workspace <code>default</code>: renomeá-la para <code>dev</code> mudaria os nomes dos recursos e recriaria tudo — que é o que este exercício proíbe. Workspace novo é para ambiente novo. Justifique essa escolha no <code>DECISOES.md</code>.</div>
+  </div></div>
+
+  <div class="step"><div class="badge">10</div><div class="stepbody">
+    <h3>Rode a verificação</h3>
+    <div class="do">Digite</div>
+    <pre>cd ../verificacao && ./verifica.sh</pre>
+    <div class="info">O critério 1 (o <code>plan</code> limpo) vale 30% — é o coração. Se ele falhar, você recriou algo: revise o Passo 5 (faltou um <code>state mv</code>?) ou o Passo 3 (mudou um nome?).</div>
+  </div></div>
+
+  <div class="step"><div class="badge">11</div><div class="stepbody">
+    <h3>Escreva o DECISOES.md</h3>
+    <p>Uma frase por decisão (01 a 05). Fale da <b>refatoração</b>, não do lake: a fronteira do módulo, como você moveu o estado, workspace × pasta, o que o <code>plan</code> limpo prova (e o que não prova), e o que quebraria se você tivesse aplicado antes do <code>state mv</code>.</p>
+  </div></div>
+
+  <div class="step"><div class="badge">12</div><div class="stepbody">
+    <h3>Derrube e prove limpo, depois abra o PR</h3>
+    <div class="do">Digite</div>
+    <pre>cd ../terraform && terraform destroy -var="sufixo=$SUFIXO"
+cd ../verificacao && ./verifica.sh --pos-destroy</pre>
+    <div class="info">PR com a pasta refatorada, o <code>DECISOES.md</code> e a saída do <code>verifica.sh</code> colada. <b>Não</b> comite <code>terraform.tfstate</code>, <code>.terraform/</code> nem <code>backend.hcl</code> com o nome da conta.</div>
+  </div></div>
+
+  <!-- AS 5 DECISÕES -->
+  <h2><span class="num">As cinco decisões</span> <span class="clk">critério 6 · 20%</span></h2>
+  <table>
+    <tr><th>#</th><th>Sobre</th><th>O que a frase precisa dizer</th></tr>
+    <tr><td class="p">01</td><td>a fronteira do módulo</td><td>o que entrou no módulo, o que ficou na raiz, e por quê</td></tr>
+    <tr><td class="p">02</td><td>mover o estado</td><td>como você moveu sem recriar (<code>state mv</code> × <code>moved {}</code>) e o que aprendeu</td></tr>
+    <tr><td class="p">03</td><td>workspace × pasta</td><td>por que workspace, e por que a stack migrada ficou no default</td></tr>
+    <tr><td class="p">04</td><td>o plan limpo</td><td>o que ele prova — e o que ele <b>não</b> prova (drift ainda existe)</td></tr>
+    <tr><td class="p">05</td><td>a ordem</td><td>o que quebraria se você tivesse dado <code>apply</code> antes do <code>state mv</code></td></tr>
+  </table>
+
+  <!-- RUBRICA -->
+  <h2><span class="num">Rubrica</span></h2>
+  <table>
+    <tr><th>#</th><th>Critério</th><th>Verificação</th><th>Peso</th></tr>
+    <tr><td class="p">0</td><td>Módulo + backend remoto + workspace</td><td>verifica.sh (grep)</td><td class="p">elimina</td></tr>
+    <tr><td class="p">1</td><td><b>plan LIMPO — 0 to add/change/destroy</b></td><td>verifica.sh · plan</td><td class="p">30%</td></tr>
+    <tr><td class="p">2</td><td>Estado no backend remoto (não local)</td><td>verifica.sh</td><td class="p">15%</td></tr>
+    <tr><td class="p">3</td><td>Um workspace nomeado em uso</td><td>verifica.sh</td><td class="p">10%</td></tr>
+    <tr><td class="p">4</td><td>Os cinco outputs de contrato preservados</td><td>verifica.sh · output</td><td class="p">10%</td></tr>
+    <tr><td class="p">5</td><td>destroy limpo, sem órfão</td><td>verifica.sh --pos-destroy</td><td class="p">15%</td></tr>
+    <tr><td class="p">6</td><td>DECISOES.md: uma justificativa por decisão</td><td>leitura</td><td class="p">20%</td></tr>
+  </table>
+  <div class="info"><b>O critério 1 é o exercício.</b> Um <code>plan</code> que quer mudar qualquer coisa significa que você recriou algo — e refatorar que recria não é refatorar.</div>
+
+  <!-- CHECKPOINTS -->
+  <h2><span class="num">Checkpoints</span></h2>
+  <ul class="sq">
+    <li><b>20 min</b> — stack plana aplicada e código já em módulo (Passo 3).</li>
+    <li><b>40 min</b> — <code>plan</code> limpo depois do <code>state mv</code> (Passo 6).</li>
+    <li><b>75 min</b> — estado no backend, <code>verifica.sh</code> verde e PR aberto.</li>
+  </ul>
+
+  <!-- ERROS -->
+  <h2><span class="num">O que mais reprova</span></h2>
+  <ul class="sq">
+    <li>Aplicar antes do <code>state mv</code> — destrói e recria; às vezes deixa a stack meio quebrada.</li>
+    <li>Mudar o nome de um recurso ao movê-lo para o módulo — vira recriação, e o <code>plan</code> não fica limpo.</li>
+    <li>Esquecer um <code>state mv</code> — sobra um recurso "órfão" no plan.</li>
+    <li>Comitar <code>terraform.tfstate</code> ou <code>backend.hcl</code> com o nome da conta.</li>
+  </ul>
+
+  <p class="foot">Engenharia de Dados · Exercício 03 (Aula 12) · CESAR School · Graduação em Ciência da Computação. Este enunciado abre offline; nenhuma dependência externa.</p>
+
+</div>
+</body>
+</html>

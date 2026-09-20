@@ -1,0 +1,23 @@
+Varredura independente da conta apos o destroy, alem do que o verifica.sh checa.
+O script so procura buckets orfaos; estas chamadas cobrem tambem Glue e Athena.
+
+$ aws s3 ls | grep -E 'eda-a12-jmnfa'
+(nenhuma linha)
+
+$ aws glue get-database --name eda_a12_jmnfa
+An error occurred (EntityNotFoundException) when calling the GetDatabase
+operation: Database eda_a12_jmnfa not found.
+
+$ aws athena get-work-group --work-group eda-a12-jmnfa-wg
+An error occurred (InvalidRequestException) when calling the GetWorkGroup
+operation: WorkGroup is not found.
+
+$ aws s3 ls s3://eda-tfstate-grupo01/ --recursive
+2026-09-20 13:50:58        400 aula12/jmnfa/terraform.tfstate
+2026-09-20 13:34:59        181 eda-a12/dev/aula12/jmnfa/terraform.tfstate
+
+NOTA: o estado remoto encolheu de 12628 para 400 bytes. O objeto continua
+existindo porque guarda lineage e serial, mas a lista de recursos esta vazia.
+O bucket eda-tfstate-grupo01 foi mantido de proposito: e infraestrutura de
+bootstrap do grupo, criada fora do Terraform, e a Parte 1 do projeto da AV1
+reusa esta stack.

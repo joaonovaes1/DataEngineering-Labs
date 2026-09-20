@@ -1,0 +1,25 @@
+$ terraform workspace show
+default
+
+$ terraform destroy -var="sufixo=jmnfa"
+
+[trecho final; a fase de plan e a confirmacao "yes" precedem estas linhas]
+
+module.lake.aws_s3_bucket_public_access_block.lake: Destroying... [id=eda-a12-jmnfa-lake]
+module.lake.aws_athena_workgroup.wg: Destroying... [id=eda-a12-jmnfa-wg]
+module.lake.aws_glue_catalog_table.corridas: Destroying... [id=325583868777:eda_a12_jmnfa:corridas]
+module.lake.aws_athena_workgroup.wg: Destruction complete after 1s
+module.lake.aws_s3_bucket.results: Destroying... [id=eda-a12-jmnfa-results]
+module.lake.aws_glue_catalog_table.corridas: Destruction complete after 1s
+module.lake.aws_glue_catalog_database.db: Destroying... [id=325583868777:eda_a12_jmnfa]
+module.lake.aws_s3_bucket_public_access_block.lake: Destruction complete after 1s
+module.lake.aws_s3_bucket.lake: Destroying... [id=eda-a12-jmnfa-lake]
+module.lake.aws_glue_catalog_database.db: Destruction complete after 0s
+module.lake.aws_s3_bucket.lake: Destruction complete after 1s
+module.lake.aws_s3_bucket.results: Destruction complete after 1s
+
+Destroy complete! Resources: 6 destroyed.
+
+NOTA: os enderecos destruidos sao os `module.lake.*`, nao os antigos da raiz.
+E a confirmacao de que a movimentacao de estado segurou do comeco ao fim: o
+destroy operou sobre os mesmos objetos que o apply criou, ja sob o endereco novo.

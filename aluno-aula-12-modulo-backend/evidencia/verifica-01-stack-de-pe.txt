@@ -1,0 +1,25 @@
+Exercício 03 — verificação da refatoração (região us-east-1)
+----------------------------------------------------------------
+Critério 0 — módulo + backend remoto + workspace (ELIMINATÓRIO)
+OK     [0]  módulo, backend s3 e pasta modules/ presentes
+----------------------------------------------------------------
+Critério 1 — plan LIMPO (o coração do exercício)
+PASSA  [1]  (30%)  No changes — a refatoração não recriou nada.
+----------------------------------------------------------------
+Critério 2 — o estado está no backend remoto
+PASSA  [2]  (15%)  backend s3 configurado e sem estado local.
+----------------------------------------------------------------
+Critério 3 — um workspace nomeado foi usado
+PASSA  [3]  (10%)  workspace(s) além do default: dev 
+----------------------------------------------------------------
+Critério 4 — os cinco outputs de contrato preservados
+PASSA  [4]  (10%)  os cinco outputs continuam lá.
+----------------------------------------------------------------
+Critério 6 — DECISOES.md (avaliação manual)
+       encontrei 5 decisões em ../DECISOES.md — o conteúdo é avaliado à mão (20%).
+----------------------------------------------------------------
+Critérios automáticos: 65 / 65 pontos-percentuais
+       faltam o critério 5 (./verifica.sh --pos-destroy) e o 6 (manual).
+
+Cole no seu PR:
+  plan_limpo=sim  criterios_auto=65/65  data=2026-09-20T16:44:52Z

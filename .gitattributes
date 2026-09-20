@@ -1,0 +1,11 @@
+# core.autocrlf=true nesta maquina. Sem isto, o verifica.sh sai de um clone
+# com CRLF e o bash recusa o shebang ("/usr/bin/env bash^M: bad interpreter").
+*.sh text eol=lf
+
+# HCL sempre LF, para o diff do PR nao virar ruido de fim de linha.
+*.tf      text eol=lf
+*.tfvars  text eol=lf
+*.hcl     text eol=lf
+
+# Binarios: nao tocar.
+*.pptx binary
